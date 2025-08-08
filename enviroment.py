@@ -9,8 +9,7 @@ class ThreadResourceEnv(gym.Env):
         self.n_threads = n_threads
         self.m_servers = m_servers
         self.C = server_capacity
-        self.P = 1.0
-
+        
         self.state_dim = m_servers * n_threads + 3
         self.observation_space = spaces.Box(low=0, high=1e3, shape=(self.state_dim,), dtype=np.float32)
 
@@ -85,7 +84,7 @@ class ThreadResourceEnv(gym.Env):
         server['threads'].append({'id': thread_idx, 'c': actual_resource, 'T': exec_time})
         server['max_time'] = max(server['max_time'], exec_time)
 
-        total_energy = sum(s['max_time']*self.P for s in self.servers)
+        total_energy = sum(s['max_time'] for s in self.servers)
         reward = -total_energy
 
         unassigned_threads = [t for t in self.threads if not t['assigned']]
