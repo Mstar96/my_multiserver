@@ -18,7 +18,7 @@ def find_resource_for_target_time(li, target_T, fi_func, C):
     best = C
     while l <= r:
         mid = (l + r) // 2
-        speed = fi_func(mid)
+        speed = fi_power(mid,fi_func)
         if speed <= 0:
             time = float('inf')
         else:
@@ -46,8 +46,8 @@ def mrass_allocate(thread_list, C, fi_funcs):
     TR = 0.0
     for li, f in zip(thread_list, fi_funcs):
         # handle fi(C) and fi(1)
-        vC = f(C)
-        v1 = f(1)
+        vC = fi_power(C,f)
+        v1 = fi_power(1,f)
         TL = max(TL, li / (vC if vC>0 else 1e-6))
         TR = max(TR, li / (v1 if v1>0 else 1e-6))
     # search integer T seconds (we can use float and tolerance)
@@ -111,7 +111,7 @@ def mrass_allocate(thread_list, C, fi_funcs):
     # compute M
     M = 0.0
     for li, f, r in zip(thread_list, fi_funcs, best_alloc):
-        sp = f(r)
+        sp = fi_power(r,f)
         T = li / (sp if sp>0 else 1e-6)
         if T > M: M = T
     return best_alloc, M
