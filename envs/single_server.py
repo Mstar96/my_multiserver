@@ -47,8 +47,9 @@ class SingleServerAllocEnv:
         # normalized features
         # li normalized by max li, alpha normalized to [0,1] using known range (0.2,1.0)
         li_norm = self.lis / (np.max(self.lis) + 1e-9)
-        alpha_norm = (self.alphas - 0.2) / 0.8
+        alpha_norm = (self.alphas - 0.2) / 0.9
         alloc_norm = self.allocs / max(1, self.C)
+        
         remaining = np.array([(self.C - self.steps) / max(1, self.C)], dtype=np.float32)
         s = np.concatenate([alloc_norm.astype(np.float32), li_norm.astype(np.float32),
                             alpha_norm.astype(np.float32), remaining.astype(np.float32)], axis=0)
@@ -67,12 +68,12 @@ class SingleServerAllocEnv:
         self.allocs[action] += 1
         self.steps += 1
         # recompute M
-        self.M = self._compute_M()
+        self.M = self.compute_M()
         delta_M = self.M - old_M
         reward = - float(delta_M)  # negative increment
         self.done = (self.steps >= self.C)
         info = {"M": self.M, "allocs": self.allocs.copy()}
-        return self._get_state(), reward, self.done, info
+        return self.get_state(), reward, self.done, info
 
     def render(self):
         print(f"allocs={self.allocs.tolist()}, M={self.M:.4f}")
@@ -80,4 +81,4 @@ class SingleServerAllocEnv:
     def evaluate_mrass(self):
         """Compute MRASS allocation and its M for same (lis, alphas, C) using your mrass logic."""
         # We'll call mrass_allocate from src.utils.mrass externally in training script for comparison.
-        raise NotImplementedError("Use mrass_allocate from src.utils.mrass for evaluation.")
+        raise NotImplementedError("Use mrass_allocate from utils.mrass for evaluation.")

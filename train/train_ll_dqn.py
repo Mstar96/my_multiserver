@@ -4,9 +4,9 @@ import numpy as np
 from tqdm import trange
 import torch
 
-from src.env_single_server import SingleServerAllocEnv
-from src.dqn_agent import DQNAgent
-from src.utils.mrass import mrass_allocate  # 你的 mrass implementation
+from envs.single_server import SingleServerAllocEnv
+from agent.ll_dqn_agent import DQNAgent
+from utils.marss import mrass_allocate  # 你的 mrass implementation
 
 def evaluate_policy(env, agent, episodes=10, eps=0.01):
     """Evaluate greedy policy (eps small). Return average final M and allocation."""
