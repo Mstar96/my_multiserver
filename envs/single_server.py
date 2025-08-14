@@ -57,8 +57,8 @@ class SingleServerAllocEnv:
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
         """
-        Action: integer in [0..n-1], allocate one unit to that thread.
-        Returns: next_state, reward, done, info
+        动作: integer in [0..n-1], 分一个资源给线程.
+        返回值: next_state, reward, done, info
         """
         assert 0 <= action < self.n
         if self.done:
@@ -72,13 +72,13 @@ class SingleServerAllocEnv:
         delta_M = self.M - old_M
         reward = - float(delta_M)  # negative increment
         self.done = (self.steps >= self.C)
-        info = {"M": self.M, "allocs": self.allocs.copy()}
+        info = {"complete time": self.M, "allocation": self.allocs.copy()}
         return self.get_state(), reward, self.done, info
 
     def render(self):
-        print(f"allocs={self.allocs.tolist()}, M={self.M:.4f}")
+        print(f"allocs={self.allocs.tolist()}, complete time={self.M:.4f}")
 
     def evaluate_mrass(self):
-        """Compute MRASS allocation and its M for same (lis, alphas, C) using your mrass logic."""
+        """Compute MRASS allocation and its complete time for same (lis, alphas, C) using your mrass logic."""
         # We'll call mrass_allocate from src.utils.mrass externally in training script for comparison.
         raise NotImplementedError("Use mrass_allocate from utils.mrass for evaluation.")

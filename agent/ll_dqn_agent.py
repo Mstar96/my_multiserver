@@ -46,7 +46,7 @@ class ReplayBuffer:
 
 class DQNAgent:
     def __init__(self, state_dim:int, action_dim:int, lr=1e-3, gamma=0.99,
-                 buffer_size=100000, batch_size=128, device='cpu'):
+                 buffer_size=100000, batch_size=128, device='cuda'):
         self.device = torch.device(device)
         self.q = QNet(state_dim, action_dim).to(self.device)
         self.targ = QNet(state_dim, action_dim).to(self.device)
