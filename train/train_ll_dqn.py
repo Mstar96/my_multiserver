@@ -57,6 +57,7 @@ def main():
     max_task = 500   # 任务量上限
     min_alpha = 0.2  # alpha下限（建议0.1~1.0）
     max_alpha = 0.9  # alpha上限
+    #初始化一次
     thread_list , fi_alphas = generate_test_data(num_threads,min_task,max_task,min_alpha,max_alpha)
     print(f"thread_task_list = {thread_list}\nfi_funcs = {fi_alphas}")
     env = SingleServerAllocEnv(thread_list, fi_alphas, C, seed=0)
@@ -69,13 +70,17 @@ def main():
 
     # hyperparams
     eps_start, eps_end = 1.0, 0.05
-    eps_decay_steps = 10000
-    total_episodes = 20000
+    eps_decay_steps = 200000
+    total_episodes = 200000
     update_every = 4
     target_update_every_eps = 20
 
     global_step = 0
     for ep in trange(total_episodes, desc="Train DQN-LL"):
+        # ✅ 每次训练生成新任务
+        thread_list, fi_alphas = generate_test_data(num_threads, min_task, max_task, min_alpha, max_alpha)
+        env = SingleServerAllocEnv(thread_list, fi_alphas, C)
+        
         s = env.reset()
         done = False
         ep_reward = 0.0
@@ -99,7 +104,7 @@ def main():
             agent.update_target()
 
         # periodic eval & compare to MRASS
-        if (ep+1) % 2000 == 0:
+        if (ep+1) % 20000 == 0:
             # evaluate DQN policy
             dqn_allocation, dqn_time = evaluate_policy(env, agent, episodes=30, eps=0.0)
             # MRASS baseline (call once)

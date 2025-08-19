@@ -1,7 +1,7 @@
 # src/env_single_server.py
 import numpy as np
 from typing import List, Tuple
-from utils.marss import fi_power  # mrass里定义的fi_power,计算效用函数值
+from utils.marss import fi_power , mrass_allocate  # mrass里定义的fi_power,计算效用函数值;引入 mrass_allocate 用于 baseline
 
 class SingleServerAllocEnv:
     """
@@ -69,9 +69,21 @@ class SingleServerAllocEnv:
         self.steps += 1
         # recompute M
         self.M = self.compute_M()
-        delta_M = self.M - old_M
-        reward = - float(delta_M)  # negative increment
+        
+        #修改奖励函数
+        #1.改善M
+        #2.归一化
+        improvement = old_M - self.M 
+        reward = improvement / (old_M + 1e-6) # 归一化
+        reward = float(np.clip(reward,-1.0,1.0))
         self.done = (self.steps >= self.C)
+        
+        # 如果 episode 结束，加入最终奖励（和 MRASS baseline 比较）
+        if self.done:
+            alloc_mrass, mrass_time = mrass_allocate(self.lis.tolist(), int(self.C), self.alphas.tolist())
+            final_bonus = (mrass_time - self.M) / (mrass_time + 1e-6)  # 如果 RL 比 MRASS 好，就 >0
+            reward += float(np.clip(final_bonus, -1.0, 1.0))
+            
         info = {"complete time": self.M, "allocation": self.allocs.copy()}
         return self.get_state(), reward, self.done, info
 
