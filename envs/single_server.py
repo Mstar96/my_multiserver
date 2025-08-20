@@ -84,7 +84,7 @@ class SingleServerAllocEnv:
             final_bonus = (mrass_time - self.M) / (mrass_time + 1e-6)  # 如果 RL 比 MRASS 好，就 >0
             reward += float(np.clip(final_bonus, -1.0, 1.0))
             
-        info = {"complete time": self.M, "allocation": self.allocs.copy()}
+        info = {"complete time": self.M, "allocation": self.allocs.copy(),"M_reward":reward}
         return self.get_state(), reward, self.done, info
 
     def render(self):
