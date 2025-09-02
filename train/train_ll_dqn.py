@@ -6,6 +6,7 @@ import torch
 import random
 import sys, os
 import matplotlib.pyplot as plt   # ✅ 新增：画图用
+from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from envs.single_server import SingleServerAllocEnv
@@ -124,8 +125,9 @@ def main():
             mrass_times.append(mrass_time)
             #save model
             save_dir = "./model"
+            current_date = datetime.now().strftime("%Y%m%d_%H:%M:%S")
             os.makedirs(save_dir, exist_ok=True)
-            torch.save(agent.q.state_dict(), f"{save_dir}/3/dqn_ll_ep{ep+1}_dqn{dqn_time}_marss{mrass_time}.pt")
+            torch.save(agent.q.state_dict(), f"{save_dir}/3/dqn_ll_ep{ep+1}_dqn{dqn_time}_marss{mrass_time}_{current_date}.pt")
 
     # final evaluation
     dqn_allocation, dqn_time = evaluate_policy(env, agent, episodes=200, eps=0.0)
@@ -153,7 +155,7 @@ def main():
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig("training_curves.png")  # ✅ 保存图片
+    plt.savefig(f"training_curves_{current_date}.png")  # ✅ 保存图片
     plt.show()
 if __name__ == "__main__":
     main()

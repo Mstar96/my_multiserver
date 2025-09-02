@@ -1,5 +1,6 @@
 # src/utils/mrass.py
 import numpy as np
+import torch
 
 def fi_power(c: int, alpha: float) -> float:
     """_summary_
@@ -11,10 +12,12 @@ def fi_power(c: int, alpha: float) -> float:
     Returns:
         float: 线程得到c资源时的效用函数值
     """
-    if c <= 0: 
-        return 1e-6
-    return float(c) ** float(alpha)
-
+    if not torch.is_tensor(c):
+        c = torch.tensor(c, dtype=torch.float32)
+    if not torch.is_tensor(alpha):
+        alpha = torch.tensor(alpha, dtype=torch.float32)
+    c = torch.clamp(c, min=1e-6)
+    return torch.pow(c, alpha)
 
 def find_r_for_T(task: int,target_time: float, func: float, C: int) -> int:
     """_summary_
