@@ -70,21 +70,50 @@ class SingleServerAllocEnv:
         # recompute M
         self.M = self.compute_M()
         
-        #修改奖励函数
-        #1.改善M
-        #2.归一化
-        improvement = old_M - self.M 
-        reward = improvement / (old_M + 1e-6) # 归一化
-        reward = float(np.clip(reward,-1.0,1.0))
-        self.done = (self.steps >= self.C)
+        # 重新设计的奖励函数
+        # 1. 基于M的改善程度
+        improvement = old_M - self.M
         
-        # 如果 episode 结束，加入最终奖励（和 MRASS baseline 比较）
+        # 2. 使用对数缩放来处理不同规模的改善
+        if improvement > 0:
+            # 正向改善 - 使用对数奖励以鼓励更大的改善
+            reward = np.log1p(improvement)  # log(1 + improvement)
+        elif improvement < 0:
+            # 负向变化 - 惩罚但不过于严厉
+            reward = -0.5 * np.log1p(-improvement)  # 负改善的惩罚较轻
+        else:
+            reward = 0.0
+        
+        # 3. 添加资源分配效率奖励
+        # 鼓励将资源分配给能够产生最大效益的线程
+        current_utilization = self.allocs[action] / self.C
+        efficiency_bonus = 0.1 * (1.0 - current_utilization)  # 未充分利用的线程获得更多奖励
+        reward += efficiency_bonus
+        
+        # 4. 添加探索奖励 (特别是在早期训练阶段)
+        exploration_bonus = 0.05 * (1.0 - self.steps / self.C)  # 随着episode进行而减少
+        reward += exploration_bonus
+        
+        # 5. 最终完成时间奖励 (只在episode结束时提供)
+        self.done = (self.steps >= self.C)
         if self.done:
-            alloc_mrass, mrass_time = mrass_allocate(self.lis.tolist(), int(self.C), self.alphas.tolist())
-            final_bonus = (mrass_time - self.M) / (mrass_time + 1e-6)  # 如果 RL 比 MRASS 好，就 >0
-            reward += float(np.clip(final_bonus, -1.0, 1.0))
+            # 基于最终完成时间的奖励 - 越低越好
+            # 使用指数衰减函数，使得较小的完成时间获得指数级更高的奖励
+            final_reward = 10.0 * np.exp(-self.M / np.max(self.lis))  # 标准化M
+            reward += final_reward
             
-        info = {"complete time": self.M, "allocation": self.allocs.copy(),"M_reward":reward}
+            # 与初始状态比较的额外奖励
+            initial_improvement = self.initial_M - self.M
+            if initial_improvement > 0:
+                reward += 5.0 * np.log1p(initial_improvement)
+        
+        info = {
+            "complete_time": self.M, 
+            "allocation": self.allocs.copy(),
+            "improvement": improvement,
+            "reward": reward
+        }
+        
         return self.get_state(), reward, self.done, info
 
     def render(self):

@@ -4,14 +4,15 @@ import numpy as np
 from tqdm import trange
 import torch
 import random
-import sys, os
+import sys
 import matplotlib.pyplot as plt   # ✅ 新增：画图用
 from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from envs.single_server import SingleServerAllocEnv
-from agent.ll_dqn_agent import DQNAgent
+from envs.old_single_server import SingleServerAllocEnv
+from agent.old_dqn_agent import DQNAgent
 from utils.marss import mrass_allocate 
+from utils.load_dataset import load_dataset
 
 def evaluate_policy(env, agent, episodes=10, eps=0.01):
     """Evaluate greedy policy (eps small). Return average final M and allocation."""
@@ -29,29 +30,23 @@ def evaluate_policy(env, agent, episodes=10, eps=0.01):
 
 def main():
     # example problem (你可替换为随机批次或dataset)
-    # thread_list = [449, 486, 410]
-    # fi_alphas = [0.74, 0.79, 0.75]
-    C = 30  # 根据你示例分配结果为 [11,10,9] 时 C=30
-    num_threads = 3  # 线程数量
-    min_task = 100   # 任务量下限
-    max_task = 500   # 任务量上限
-    min_alpha = 0.2  # alpha下限（建议0.1~1.0）
-    max_alpha = 0.9  # alpha上限
-    #初始化一次
-    thread_list , fi_alphas = generate_test_data(num_threads,min_task,max_task,min_alpha,max_alpha)
-    print(f"thread_task_list = {thread_list}\nfi_funcs = {fi_alphas}")
-    env = SingleServerAllocEnv(thread_list, fi_alphas, C, seed=0)
+    thread_list = [449, 486, 410]
+    fi_alphas = [0.74, 0.79, 0.75]
+    C = 100  # 根据你示例分配结果为 [11,10,9] 时 C=30
+    train_data = load_dataset("data/data")
+    verify_data = load_dataset("data/verify")
+    env = SingleServerAllocEnv(thread_list,fi_alphas,C)
     state_dim = env.get_state().shape[0]
     action_dim = len(thread_list)
-
     device = "cuda"
     agent = DQNAgent(state_dim, action_dim, lr=1e-3, gamma=0.99,
                      buffer_size=50000, batch_size=64, device=device)
-
+    
+    total_epoch = 1000
     # hyperparams
     eps_start, eps_end = 1.0, 0.05
     eps_decay_steps = 50000
-    total_episodes = 50000
+    total_episodes = 1000
     update_every = 4
     target_update_every_eps = 20
 
@@ -61,56 +56,57 @@ def main():
     mrass_times = []
     
     global_step = 0
-    for ep in trange(total_episodes, desc="Train DQN-LL"):
+    for epoch in range(total_epoch):
         # ✅ 每次训练生成新任务
-        thread_list, fi_alphas = generate_test_data(num_threads, min_task, max_task, min_alpha, max_alpha)
-        env = SingleServerAllocEnv(thread_list, fi_alphas, C)
         
-        s = env.reset()
-        done = False
-        ep_reward = 0.0
-        while not done:
-            # linear eps
-            eps = max(eps_end, eps_start - (eps_start - eps_end) * (global_step / eps_decay_steps))
-            # choose action
-            a = agent.act(s, eps)
-            ns, r, done, info = env.step(a)
-            agent.remember(s, a, r, ns, done)
-            s = ns
-            ep_reward += r
-            global_step += 1
+        for item in train_data:
+            idx,tasks,alphas = item['id'],item['thread_list'],item['fi_func']
+            env = SingleServerAllocEnv(tasks, alphas, C)
+            s = env.reset()
+            done = False
+            ep_reward = 0.0
+            while not done:
+                # linear eps
+                eps = max(eps_end, eps_start - (eps_start - eps_end) * (global_step / eps_decay_steps))
+                # choose action
+                a = agent.act(s, eps)
+                ns, r, done, info = env.step(a)
+                agent.remember(s, a, r, ns, done)
+                s = ns
+                ep_reward += r
+                global_step += 1
 
-            # update
-            if global_step % update_every == 0:
-                _ = agent.update()
+                # update
+                if global_step % update_every == 0:
+                    _ = agent.update()
 
-        #保存汇报值
-        ep_rewards.append(ep_reward)
-        # update target periodically
-        if ep % target_update_every_eps == 0:
-            agent.update_target()
+            #保存汇报值
+            ep_rewards.append(ep_reward)
+            # update target periodically
+            if ep % target_update_every_eps == 0:
+                agent.update_target()
 
-        # periodic eval & compare to MRASS
-        if (ep+1) % 2000 == 0:
-            avg_reward = np.mean(ep_rewards[-2000:])
-            # evaluate DQN policy
-            dqn_allocation, dqn_time = evaluate_policy(env, agent, episodes=30, eps=0.0)
-            # MRASS baseline (call once)
-            alloc_mrass, mrass_time = mrass_allocate(thread_list, C, fi_alphas)
-            print(f"EP {ep+1}: DQN_Time={dqn_time:.4f}, MRASS_Time={mrass_time:.4f}, MRASS_Allocation={alloc_mrass}, DQN_Allocation={dqn_allocation},AvgReward={avg_reward:.4f}")
-            # ✅ 新增：保存 DQN/MRASS 完成时间
-            dqn_times.append(dqn_time)
-            mrass_times.append(mrass_time)
-            #save model
-            save_dir = "./model"
-            current_date = datetime.now().strftime("%Y%m%d_%H:%M:%S")
-            os.makedirs(save_dir, exist_ok=True)
-            torch.save(agent.q.state_dict(), f"{save_dir}/3/dqn_ll_ep{ep+1}_dqn{dqn_time}_marss{mrass_time}_{current_date}.pt")
+            # periodic eval & compare to MRASS
+            if (ep+1) % 2000 == 0:
+                avg_reward = np.mean(ep_rewards[-2000:])
+                # evaluate DQN policy
+                dqn_allocation, dqn_time = evaluate_policy(env, agent, episodes=30, eps=0.0)
+                # MRASS baseline (call once)
+                alloc_mrass, mrass_time = mrass_allocate(tasks, C, alphas)
+                print(f"EP {ep+1}: DQN_Time={dqn_time:.4f}, MRASS_Time={mrass_time:.4f}, MRASS_Allocation={alloc_mrass}, DQN_Allocation={dqn_allocation},AvgReward={avg_reward:.4f}")
+                # ✅ 新增：保存 DQN/MRASS 完成时间
+                dqn_times.append(dqn_time)
+                mrass_times.append(mrass_time)
+                #save model
+                save_dir = "./model"
+                current_date = datetime.now().strftime("%Y%m%d_%H:%M:%S")
+                os.makedirs(save_dir, exist_ok=True)
+                torch.save(agent.q.state_dict(), f"{save_dir}/3/dqn_ll_ep{ep+1}_dqn{dqn_time}_marss{mrass_time}_{current_date}.pt")
 
-    # final evaluation
-    dqn_allocation, dqn_time = evaluate_policy(env, agent, episodes=200, eps=0.0)
-    alloc_mrass, mrass_time = mrass_allocate(thread_list, C, fi_alphas)
-    print(f"Final: DQN_time={dqn_time:.4f}, DQN_Allocation={dqn_allocation}, MRASS_Time={mrass_time:.4f}, MRASS_alloc={alloc_mrass},AvgReward={avg_reward:.4f}")
+        # final evaluation
+        dqn_allocation, dqn_time = evaluate_policy(env, agent, episodes=200, eps=0.0)
+        alloc_mrass, mrass_time = mrass_allocate(tasks, C, alphas)
+        print(f"Final: DQN_time={dqn_time:.4f}, DQN_Allocation={dqn_allocation}, MRASS_Time={mrass_time:.4f}, MRASS_alloc={alloc_mrass},AvgReward={avg_reward:.4f}")
 # ================= 最终可视化 =================
     plt.figure(figsize=(12,5))
 

@@ -34,7 +34,7 @@ def generate_test_data(data_num:int,num_threads: int, min_task: int, max_task: i
 
 def data_save(dataset:list,project_path:str):
     #make sure the path exist
-    path = os.path.join(project_path,'data')
+    path = os.path.join(project_path,'verify')
     Path(path).parent.mkdir(parents=True,exist_ok=True)
     with open(path,'w') as f:
         json.dump({
