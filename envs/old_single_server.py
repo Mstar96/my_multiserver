@@ -33,6 +33,7 @@ class SingleServerAllocEnv:
         self.steps = 0
         self.done = False
         self.M = self.compute_M()  # initial M with zeros (uses fi_power(0,alpha) -> small)
+        self.initial_M = self.M
         return self.get_state()
 
     def compute_M(self) -> float:

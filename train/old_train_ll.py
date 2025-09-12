@@ -1,11 +1,11 @@
 # src/train_ll_dqn.py
 import os
 import numpy as np
-from tqdm import trange
+from tqdm import tqdm,trange
 import torch
 import random
 import sys
-import matplotlib.pyplot as plt   # ✅ 新增：画图用
+import matplotlib.pyplot as plt
 from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -14,122 +14,193 @@ from agent.old_dqn_agent import DQNAgent
 from utils.marss import mrass_allocate 
 from utils.load_dataset import load_dataset
 
-def evaluate_policy(env, agent, episodes=10, eps=0.01):
-    """Evaluate greedy policy (eps small). Return average final M and allocation."""
+def evaluate_policy(env, agent, tasks, alphas, C, episodes=1, eps=0.01):
+    """评估策略性能"""
     results = []
     for _ in range(episodes):
-        s = env.reset()
+        # 重置环境到指定任务
+        env.reset(thread_lis=tasks, alphas=alphas)
+        s = env.get_state()
         done = False
         while not done:
             a = agent.act(s, eps)
             s, r, done, info = env.step(a)
         allocation = info.get("allocation", None)
-        complete_time = info.get("complete time", None)  # 完成时间
+        complete_time = info.get("complete_time", None)
         results.append((allocation, complete_time))
-    return allocation,complete_time
+    return allocation, complete_time
 
-def main():
-    # example problem (你可替换为随机批次或dataset)
-    thread_list = [449, 486, 410]
-    fi_alphas = [0.74, 0.79, 0.75]
-    C = 100  # 根据你示例分配结果为 [11,10,9] 时 C=30
-    train_data = load_dataset("data/data")
-    verify_data = load_dataset("data/verify")
-    env = SingleServerAllocEnv(thread_list,fi_alphas,C)
-    state_dim = env.get_state().shape[0]
-    action_dim = len(thread_list)
-    device = "cuda"
-    agent = DQNAgent(state_dim, action_dim, lr=1e-3, gamma=0.99,
-                     buffer_size=50000, batch_size=64, device=device)
-    
-    total_epoch = 1000
-    # hyperparams
-    eps_start, eps_end = 1.0, 0.05
-    eps_decay_steps = 50000
-    total_episodes = 1000
-    update_every = 4
-    target_update_every_eps = 20
-
-    # ✅ 新增：存放训练曲线
-    ep_rewards = []
+def final_evaluation(agent, env, verify_data, C):
+    """最终评估函数"""
     dqn_times = []
     mrass_times = []
     
-    global_step = 0
-    for epoch in range(total_epoch):
-        # ✅ 每次训练生成新任务
+    for item in verify_data:
+        tasks = item['thread_list']
+        alphas = item['fi_func']
+        # 评估DQN策略
+        dqn_allocation, dqn_time = evaluate_policy(env, agent, tasks, alphas, C, episodes=1, eps=0.0)
         
-        for item in train_data:
-            idx,tasks,alphas = item['id'],item['thread_list'],item['fi_func']
-            env = SingleServerAllocEnv(tasks, alphas, C)
-            s = env.reset()
+        # 评估MRASS策略
+        alloc_mrass, mrass_time = mrass_allocate(tasks, C, alphas)
+        
+        dqn_times.append(dqn_time)
+        mrass_times.append(mrass_time)
+    
+    # 计算统计信息
+    dqn_avg = np.mean(dqn_times)
+    mrass_avg = np.mean(mrass_times)
+    improvement = (mrass_avg - dqn_avg) / mrass_avg * 100
+    
+    print(f"最终评估结果:")
+    print(f"DQN平均完成时间: {dqn_avg:.4f}")
+    print(f"MRASS平均完成时间: {mrass_avg:.4f}")
+    print(f"性能提升: {improvement:.2f}%")
+    
+def plot_training_curves(ep_rewards, dqn_times, mrass_times):
+    """绘制训练曲线"""
+    plt.figure(figsize=(12, 5))
+    
+    # 奖励曲线
+    plt.subplot(1, 2, 1)
+    plt.plot(ep_rewards)
+    plt.title("训练奖励曲线")
+    plt.xlabel("Episode")
+    plt.ylabel("奖励")
+    
+    # 完成时间曲线
+    plt.subplot(1, 2, 2)
+    epochs = range(0, len(dqn_times) * 50, 50)
+    plt.plot(epochs, dqn_times, label="DQN")
+    plt.plot(epochs, mrass_times, label="MRASS")
+    plt.title("验证集完成时间")
+    plt.xlabel("Epoch")
+    plt.ylabel("平均完成时间")
+    plt.legend()
+    
+    plt.tight_layout()
+    
+    # 保存图像
+    current_date = datetime.now().strftime("%Y%m%d_%H_%M_%S")
+    plt.savefig(f"training_curves_{current_date}.png")
+    plt.show()
+    
+def main():
+    # 加载训练和验证数据
+    train_data = load_dataset("data/data")
+    verify_data = load_dataset("data/verify")
+    
+    # 使用第一个数据项初始化环境
+    first_item = train_data[0]
+    tasks = first_item['thread_list']
+    alphas = first_item['fi_func']
+    C = 100
+    
+    # 初始化环境
+    env = SingleServerAllocEnv(tasks, alphas, C)
+    state_dim = env.get_state().shape[0]
+    action_dim = len(tasks)
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"使用设备: {device}")
+    
+    agent = DQNAgent(state_dim, action_dim, lr=1e-3, gamma=0.99,
+                     buffer_size=50000, batch_size=512, device=device)
+    
+    # 训练参数
+    total_epochs = 100
+    eps_start, eps_end = 1.0, 0.05
+    eps_decay_steps = 5000
+    update_every = 4
+    target_update_every_eps = 20
+
+    # 存放训练曲线
+    ep_rewards = []
+    dqn_times = []
+    mrass_times = []
+    best_dqn_time = float('inf')  # 初始化最佳时间
+    
+    global_step = 0
+    
+    # 训练循环
+    for epoch in trange(total_epochs,desc="Epoch progress"):
+        epoch_reward = 0.0
+        eps = max(eps_end, eps_start - (eps_start - eps_end) * (global_step / eps_decay_steps))
+        random.shuffle(train_data)
+        
+        # 遍历训练集
+        for item in tqdm(train_data,desc=f"Training in Epoch{epoch+1}",leave=False):
+            tasks = item['thread_list']
+            alphas = item['fi_func']
+            
+            # 重置环境到当前任务
+            env.reset(thread_lis=tasks, alphas=alphas)
+            state = env.get_state()
             done = False
-            ep_reward = 0.0
+            episode_reward = 0.0
+            
             while not done:
-                # linear eps
-                eps = max(eps_end, eps_start - (eps_start - eps_end) * (global_step / eps_decay_steps))
-                # choose action
-                a = agent.act(s, eps)
-                ns, r, done, info = env.step(a)
-                agent.remember(s, a, r, ns, done)
-                s = ns
-                ep_reward += r
+                action = agent.act(state, eps)
+                next_state, reward, done, info = env.step(action)
+                agent.remember(state, action, reward, next_state, done)
+                state = next_state
+                episode_reward += reward
                 global_step += 1
 
-                # update
+                # 定期更新网络
                 if global_step % update_every == 0:
                     _ = agent.update()
+            
+            epoch_reward += episode_reward
+            ep_rewards.append(episode_reward)
 
-            #保存汇报值
-            ep_rewards.append(ep_reward)
-            # update target periodically
-            if ep % target_update_every_eps == 0:
-                agent.update_target()
-
-            # periodic eval & compare to MRASS
-            if (ep+1) % 2000 == 0:
-                avg_reward = np.mean(ep_rewards[-2000:])
-                # evaluate DQN policy
-                dqn_allocation, dqn_time = evaluate_policy(env, agent, episodes=30, eps=0.0)
-                # MRASS baseline (call once)
+        # 计算当前epoch的平均奖励
+        avg_epoch_reward = epoch_reward / len(train_data)
+        
+        # 更新目标网络
+        if epoch % target_update_every_eps == 0:
+            agent.update_target()
+                
+        # 定期评估（每10个epoch）
+        if (epoch + 1) % 10 == 0:
+            dqn_avg_time = 0
+            mrass_avg_time = 0
+            
+            for item in verify_data:
+                tasks = item['thread_list']
+                alphas = item['fi_func']
+                
+                dqn_allocation, dqn_time = evaluate_policy(env, agent, tasks, alphas, C, episodes=1, eps=0.0)
                 alloc_mrass, mrass_time = mrass_allocate(tasks, C, alphas)
-                print(f"EP {ep+1}: DQN_Time={dqn_time:.4f}, MRASS_Time={mrass_time:.4f}, MRASS_Allocation={alloc_mrass}, DQN_Allocation={dqn_allocation},AvgReward={avg_reward:.4f}")
-                # ✅ 新增：保存 DQN/MRASS 完成时间
-                dqn_times.append(dqn_time)
-                mrass_times.append(mrass_time)
-                #save model
+                
+                dqn_avg_time += dqn_time
+                mrass_avg_time += mrass_time
+            
+            dqn_avg_time /= len(verify_data)
+            mrass_avg_time /= len(verify_data)
+
+            dqn_times.append(dqn_avg_time)
+            mrass_times.append(mrass_avg_time)
+
+            print(f"Epoch {epoch+1}: DQN平均时间={dqn_avg_time:.4f}, "
+                  f"MRASS平均时间={mrass_avg_time:.4f}, "
+                  f"平均奖励={avg_epoch_reward:.4f}")
+            
+            # 如果性能更好，保存模型
+            if dqn_avg_time < best_dqn_time:
+                best_dqn_time = dqn_avg_time
                 save_dir = "./model"
-                current_date = datetime.now().strftime("%Y%m%d_%H:%M:%S")
                 os.makedirs(save_dir, exist_ok=True)
-                torch.save(agent.q.state_dict(), f"{save_dir}/3/dqn_ll_ep{ep+1}_dqn{dqn_time}_marss{mrass_time}_{current_date}.pt")
+                current_date = datetime.now().strftime("%Y%m%d_%H_%M_%S")
+                model_path = f"{save_dir}/dqn_ll_epoch_{epoch+1}_{current_date}.pt"
+                torch.save(agent.q.state_dict(), model_path)
+                print(f"保存新最佳模型: {model_path}")
 
-        # final evaluation
-        dqn_allocation, dqn_time = evaluate_policy(env, agent, episodes=200, eps=0.0)
-        alloc_mrass, mrass_time = mrass_allocate(tasks, C, alphas)
-        print(f"Final: DQN_time={dqn_time:.4f}, DQN_Allocation={dqn_allocation}, MRASS_Time={mrass_time:.4f}, MRASS_alloc={alloc_mrass},AvgReward={avg_reward:.4f}")
-# ================= 最终可视化 =================
-    plt.figure(figsize=(12,5))
+    # 最终评估（在验证集上）
+    final_evaluation(agent, env, verify_data, C)
+    
+    # 绘制训练曲线
+    plot_training_curves(ep_rewards, dqn_times, mrass_times)
 
-    # subplot1: reward
-    plt.subplot(1,2,1)
-    plt.plot(ep_rewards, label="Episode Reward")
-    plt.xlabel("Episode")
-    plt.ylabel("Reward")
-    plt.title("Training Reward Curve")
-    plt.legend()
-
-    # subplot2: 完成时间对比
-    plt.subplot(1,2,2)
-    x_axis = np.arange(len(dqn_times)) * 2000  # 每2000次记录一次
-    plt.plot(x_axis, dqn_times, label="DQN Complete Time")
-    plt.plot(x_axis, mrass_times, label="MRASS Complete Time")
-    plt.xlabel("Episode")
-    plt.ylabel("Complete Time")
-    plt.title("DQN vs MRASS Complete Time")
-    plt.legend()
-
-    plt.tight_layout()
-    plt.savefig(f"training_curves_{current_date}.png")  # ✅ 保存图片
-    plt.show()
 if __name__ == "__main__":
     main()
